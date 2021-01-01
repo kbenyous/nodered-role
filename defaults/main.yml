@@ -1,0 +1,2 @@
+role_nodered_force_install: False
+role_nodered_install_pi_nodes: True

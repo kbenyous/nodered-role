@@ -1,0 +1,82 @@
+---
+
+- block:
+  - name: Installing software requirements
+    apt:
+      name: "{{ item }}"
+    loop:
+      - build-essential 
+      - git
+
+  - name: Creating group for runtime
+    group: 
+      name: nodered
+    
+  - name: Creating user for runtime
+    user:
+      name: nodered
+      group: nodered
+      password_lock: yes
+      home: /opt/nodered
+  become: yes
+
+#startblock Nodered Installation 
+- name: Nodered Installation
+  when: ( not(ansible_local['nodered']['installed'] | d(False) )) or role_nodered_force_install
+  block:
+  - name: Adding temporary admin group to the Nodered user (for passwordless sudo, installation only)
+    user:
+      name: nodered
+      groups: admin  
+    become: yes
+
+  - name: Downloading installation script
+    get_url:
+      url: https://raw.githubusercontent.com/node-red/linux-installers/master/deb/update-nodejs-and-nodered
+      dest: /opt/nodered
+    become: yes
+    become_user: nodered
+
+  - name: Installing
+    shell:
+      chdir: /opt/nodered
+      cmd: 'bash update-nodejs-and-nodered --confirm-install {{ "--confirm-pi" if role_nodered_install_pi_nodes else "--skip-pi" }}' 
+    become: yes
+    become_user: nodered
+
+  - name: Adding a flag (Ansible custom fact), Nodered successfully installed
+    copy:
+      dest: /etc/ansible/facts.d/nodered.fact
+      mode: 0664
+      content: { "installed": "True" }
+    become: yes
+  
+  rescue:
+  - name: Removing flag (Ansible custom fact), Nodered installation failed
+    copy:
+      dest: /etc/ansible/facts.d/nodered.fact
+      mode: 0664
+      content: |
+        {"nodered" : 
+          { "installed": "False"}
+        }
+    become: yes
+
+  always:
+  - name: Adding restrictions on Nodered user (passwordless sudo is no longer required)
+    shell:
+      cmd: gpasswd -d nodered admin
+    register: role_nodered_restrict_user_result
+    failed_when: False
+    changed_when: role_nodered_restrict_user_result.rc == 0
+    become: yes 
+#endblock Nodered Installation 
+
+- name: Enableing and starting 
+  systemd:
+    name: nodered
+    state: started
+    enabled: yes
+  become: yes
+
+
